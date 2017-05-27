@@ -256,7 +256,6 @@ void setupNumbers() {
 
   tft.setTextColor(YELLOW);
   int adc;
-  int16_t lastRomID = 1337, romID, velOc, lastVelOc = 1338;
   while (digitalRead(16) == HIGH);
   bool changed = true;
   while (digitalRead(16) == LOW) {
@@ -365,8 +364,6 @@ void setupNumbers() {
 
 
 
-      lastVelOc = velOc;
-      lastRomID = romID;
       lastSelDigit = selDigit;
     }
 
