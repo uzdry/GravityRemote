@@ -3,12 +3,13 @@
 #include <BadgeUI.h>
 #include <UIThemes.h>
 #include <SPI.h>
+#include <FS.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <gfxfont.h>
 #include <Fonts/FreeSans9pt7b.h>
-
+#include "url-encode.h"
 #include <TFT_ILI9163C.h>
 
 #include "rboot.h"
@@ -25,6 +26,7 @@
 #define MSG_GAMEMODE 7 /* not sent for bot protocol > 8 */
 #define MSG_OWN_ENERGY 8
 
+#define DEFAULT_CONFIG "pw=Gravity!&ssid=NewtonWars&ip=192.168.8.8&port=3490&name=ItSaMe&"
 
 // Color definitions
 #define BLACK   0x0000
@@ -39,9 +41,10 @@
 //char ssid[] = "NewtonWars";
 //char pw[] = "Gravity!";
 //char ip[] = "192.168.8.8";
-char ssid[] = "GPN-open";
-char pw[] = "";
-char ip[] = "94.45.244.42";
+char*  ssid; //= "GPN-open";
+char*  pw;   // = "";
+char*  ip;   //= "94.45.244.42";
+char*  nick; // = "ItsAMe";
 int port = 3490;
 
 
@@ -84,9 +87,56 @@ void setup() {
   badge.init();
 
   initBadge();
+
+  doFileStuff();
+
   bConnect();
   clearScreen();
 
+}
+
+void doFileStuff() {
+  File gravityConf;
+  String configString;
+
+  //Files
+  if (!SPIFFS.begin()) { //initialize the spiffs
+    // TODO
+    Serial.println("Error init SPIFFS!");
+  }
+
+  if (!SPIFFS.exists("/gravityR.conf")) {
+
+    tft.println("No config file found");
+    tft.println("Using default values");
+    tft.println("Edit gravityR.conf");
+
+    gravityConf = SPIFFS.open("/gravityR.conf", "w");
+    gravityConf.print(DEFAULT_CONFIG);
+    gravityConf.close();
+    delay(4000);
+
+  }
+
+  gravityConf = SPIFFS.open("/gravityR.conf", "r");
+
+  // READING VALUES
+
+  while (gravityConf.available()) {
+    configString += char(gravityConf.read());
+  }
+  gravityConf.close();
+  UrlDecode confParse(configString.c_str());
+  Serial.println(configString);
+  configString = String();
+  ssid = confParse.getKey("ssid");
+  pw = confParse.getKey("pw");
+  nick = confParse.getKey("name");
+  ip = confParse.getKey("ip");
+  port = atoi(confParse.getKey("port"));
+
+  Serial.printf("SSID: %s | PW: %s | Name: %s | IP: %s | Port: %d", ssid, pw, nick, ip, port);
+  Serial.println("Read gravityR.conf");
 }
 
 void loop() {
@@ -99,12 +149,13 @@ void loop() {
   }
   Serial.printf("Shooting %.6f\n", curDeg);
   client.printf("%.6f\n", curDeg);
-  client.printf("u\n");
+  client.flush();
+//  client.printf("u\n");
 
-  if (client.available())
-    handleIn();
+//  if (client.available())
+//    handleIn();
 
-  delay(300);
+  delay(500);
 
 
 }
@@ -189,7 +240,7 @@ void bConnect() {
   }
   Serial.println("Client connected");
 
-  client.println("n ItSaMe");
+  client.printf("n %s\n", nick);
 
   while (client.available()) {
     client.read();
