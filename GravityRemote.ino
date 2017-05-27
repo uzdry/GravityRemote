@@ -37,8 +37,14 @@
 #define DEFAULT_THEME "Light"
 #define CONFIG_PREFIX "/deflt/conf/"
 
-char ssid[] = "GPN-open";
-char pw[] = "";
+char ssid[] = "NewtonWars";
+char pw[] = "Gravity!";
+char ip[] = "192.168.8.8";
+//char ssid[] = "GPN-open";
+//char pw[] = "";
+//char ip[] = "94.45.244.42";
+int port = 3490;
+
 
 WiFiClient client;
 
@@ -51,6 +57,13 @@ bool isDark = false;
 unsigned char wifiLight = 255;
 int wifi_hue = 0;
 int wifi_hue_target = 0;
+int8_t digit0 = 0, digit1 = 0, digit2 = 0, digit3 = 0, selDigit = 0, lastSelDigit;
+int8_t sDigit0 = 0, sDigit1 = 0, sDigit2 = 0, sDigit3 = 1;
+
+float curDeg = 0;
+float curVel = 10;
+float lastDeg = curDeg;
+float lastVel = curVel;
 
 
 typedef struct {
@@ -87,10 +100,16 @@ void setup() {
 }
 
 void loop(){
-  float angle = setupNumbers();
-  client.printf("v %.6f\n", DEFAULT_SPEED);
-  client.printf("%.6f\n", angle);
+  setupNumbers();
+  
+  if(curVel != lastVel) {
+    client.printf("v %.6f\n", curVel);
+    lastVel = curVel;
+  }
+  
+  client.printf("%.6f\n", curDeg);
   client.flush();
+  delay(500);
 }
 
 void loopl() {
@@ -163,7 +182,7 @@ void bConnect() {
   tft.println("WiFi connected!");
   tft.println(WiFi.localIP());
 
-  while (!client.connect("94.45.244.42", 3490)) {
+  while (!client.connect(ip, port)) {
     Serial.println("connection failed");
     tft.println("Connection failed!");
     delay(500);
@@ -172,20 +191,24 @@ void bConnect() {
 
   client.println("n ItSaMe");
 
+  while(client.available()){
+    client.read();
+    Serial.print('.');
+  }
+  Serial.println("");
   client.println("b");
 
   client.printf("v %.6f\n", DEFAULT_SPEED);
   client.printf("%.6f\n", 0);
 }
 
-float setupNumbers() {
+void setupNumbers() {
   badge.setAnalogMUX(MUX_JOY);
   tft.setFont(&FreeSans9pt7b);
   tft.writeFramebuffer();
   tft.setTextColor(YELLOW);
   int adc;
-  int8_t digit0 = 0, digit1 = 0, digit2 = 0, digit3 = 0, selDigit = 0, lastSelDigit;
-  uint16_t lastRomID = 1337, romID;
+  int16_t lastRomID = 1337, romID, velOc, lastVelOc = 1338;
   while(digitalRead(16) == HIGH);
   
   while (digitalRead(16) == LOW) {
@@ -195,25 +218,41 @@ float setupNumbers() {
 
     if (adc < UP + OFFSET && adc > UP - OFFSET) {
       if (selDigit == 0)
-        digit0++;
-      if (selDigit == 1)
-        digit1++;
-      if (selDigit == 2)
-        digit2++;
-      if (selDigit == 3)
         digit3++;
+      if (selDigit == 1)
+        digit2++;
+      if (selDigit == 2)
+        digit1++;
+      if (selDigit == 3)
+        digit0++;
+      if (selDigit == 4)
+        sDigit3++;
+      if (selDigit == 5)
+        sDigit2++;
+      if (selDigit == 6)
+        sDigit1++;
+      if (selDigit == 7)
+        sDigit0++;
       delay(150);
     }
 
     else if (adc < DOWN + OFFSET && adc > DOWN - OFFSET) {
       if (selDigit == 0)
-        digit0--;
-      if (selDigit == 1)
-        digit1--;
-      if (selDigit == 2)
-        digit2--;
-      if (selDigit == 3)
         digit3--;
+      if (selDigit == 1)
+        digit2--;
+      if (selDigit == 2)
+        digit1--;
+      if (selDigit == 3)
+        digit0--;
+      if (selDigit == 4)
+        sDigit3--;
+      if (selDigit == 5)
+        sDigit2--;
+      if (selDigit == 6)
+        sDigit1--;
+      if (selDigit == 7)
+        sDigit0--;
       delay(150);
     }
 
@@ -227,53 +266,117 @@ float setupNumbers() {
       delay(150);
     }
 
-    if (digit0 > 9)
+    if (digit0 > 9){
       digit0 = 0;
-
-    if (digit0 < 0)
+    }
+    if (digit0 < 0){
       digit0 = 9;
-
-    if (digit1 > 9)
+    }
+    
+    if (digit1 > 9){
       digit1 = 0;
-
-    if (digit1 < 0)
+    }
+    
+    if (digit1 < 0){
       digit1 = 9;
-
-    if (digit2 > 9)
+    }
+    
+    if (digit2 > 9){
       digit2 = 0;
-
-    if (digit2 < 0)
+    }
+    if (digit2 < 0){
       digit2 = 9;
+    }
 
-    if (digit3 > 9)
+    if (digit3 > 3){
       digit3 = 0;
+    }
+    
+    if (digit3 < 0){
+      digit3 = 3;
+    }
 
-    if (digit3 < 0)
-      digit3 = 9;
+    //=======================
+    if (sDigit0 > 9){
+      sDigit0 = 0;
+    }
+    if (sDigit0 < 0){
+      sDigit0 = 9;
+    }
+    
+    if (sDigit1 > 9){
+      sDigit1 = 0;
+    }
+    
+    if (sDigit1 < 0){
+      sDigit1 = 9;
+    }
+    
+    if (sDigit2 > 9){
+      sDigit2 = 0;
+    }
+    if (sDigit2 < 0){
+      sDigit2 = 9;
+    }
 
-    if (selDigit > 3)
+    if (sDigit3 > 4){
+      sDigit3 = 0;
+    }
+    
+    if (sDigit3 < 0){
+      sDigit3 = 4;
+    }
+
+    if (selDigit > 7)
       selDigit = 0;
 
     if (selDigit < 0)
-      selDigit = 3;
+      selDigit = 7;
 
-    romID = digit0 * 1000 + digit1 * 100 + digit2 * 10 + digit3;
-    if (romID != lastRomID || selDigit != lastSelDigit) {
-      tft.fillRect(44, 30, 50, 20, BLACK);
-      tft.fillRect(45 + 10 * selDigit, 32, 10, 15, 0x738E);
+    romID = abs(digit3) * 1000 + digit2 * 100 + digit1 * 10 + digit0;
+    velOc = abs(sDigit3) * 1000 + sDigit2 * 100 + sDigit1 * 10 + sDigit0;
+    if(digit3 < 0) romID = -romID;
+    if (romID != lastRomID || selDigit != lastSelDigit || velOc != lastVelOc) {
+      tft.fillRect(35, 30, 60, 60, BLACK);
+      if(selDigit > 3)
+        tft.fillRect(45 + 10 * (selDigit - 4), 62, 10, 15, 0x738E);
+      else
+        tft.fillRect(45 + 10 * selDigit, 32, 10, 15, 0x738E);
 
-      tft.setCursor(45, 45);
-      tft.print(digit0);
-      tft.print(digit1);
-      tft.print(digit2);
+      
+      tft.setCursor(0, 45);
+      tft.print("deg");
+      tft.setCursor(0, 75);
+      tft.print("vel");
+
+      // UPPER
+      if(digit3 < 0)
+        tft.setCursor(39, 45);
+      else
+        tft.setCursor(45, 45);
       tft.print(digit3);
+      tft.print(digit2);
+      tft.print(digit1);
+      tft.print(digit0);
+
+      // LOWER
+      tft.setCursor(45, 75);
+      tft.print(sDigit3);
+      tft.print(sDigit2);
+      tft.print(sDigit1);
+      tft.print(sDigit0);
+
+      
       tft.writeFramebuffer();
+      lastVelOc = velOc;
       lastRomID = romID;
       lastSelDigit = selDigit;
     }
+    
   }
 
-  return ((float) romID)/10;
+  curVel = ((float) velOc) / 100;
+  curDeg = ((float) romID)/10;
 }
 
 void initBadge() { //initialize the badge
