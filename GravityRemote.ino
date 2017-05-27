@@ -14,15 +14,17 @@
 #include "rboot.h"
 #include "rboot-api.h"
 
-#define WEB_SERVER_BUFFER_SIZE 1024
-#define WEB_SERVER_CLIENT_TIMEOUT 100
+// Server Defs
+#define MSG_OWNID 1
+#define MSG_PLAYERLEAVE 2
+#define MSG_PLAYERPOS 3
+#define MSG_SHOTFINISHED 4 /* not sent for bot protocol >= 6 */
 
-#define DEFAULT_SPEED 10.0
-#ifdef DEBUG
-#define BADGE_PULL_INTERVAL 60000
-#else
-#define BADGE_PULL_INTERVAL 5*60*1000
-#endif
+#define MSG_SHOTBEGIN 5
+#define MSG_SHOTFIN 6 /* replaces msg 4 */
+#define MSG_GAMEMODE 7 /* not sent for bot protocol > 8 */
+#define MSG_OWN_ENERGY 8
+
 
 // Color definitions
 #define BLACK   0x0000
@@ -34,31 +36,20 @@
 #define YELLOW  0xFFE0
 #define WHITE   0xFFFF
 
-#define DEFAULT_THEME "Light"
-#define CONFIG_PREFIX "/deflt/conf/"
-
-char ssid[] = "NewtonWars";
-char pw[] = "Gravity!";
-char ip[] = "192.168.8.8";
-//char ssid[] = "GPN-open";
-//char pw[] = "";
-//char ip[] = "94.45.244.42";
+//char ssid[] = "NewtonWars";
+//char pw[] = "Gravity!";
+//char ip[] = "192.168.8.8";
+char ssid[] = "GPN-open";
+char pw[] = "";
+char ip[] = "94.45.244.42";
 int port = 3490;
 
 
 WiFiClient client;
-
-
 Badge badge;
-int readBuf[WEB_SERVER_BUFFER_SIZE];
 
-bool autoTheme = false;
-bool isDark = false;
-unsigned char wifiLight = 255;
-int wifi_hue = 0;
-int wifi_hue_target = 0;
-int8_t digit03 = 0, digit02 = 0, digit01 = 0, digit0 = 0, digit1 = 0, digit2 = 0, digit3 = 0, selDigit = 0, lastSelDigit;
-int8_t sDigit0 = 0, sDigit1 = 0, sDigit2 = 0, sDigit3 = 1;
+int8_t digits[11];
+int8_t selDigit = 0, lastSelDigit;
 
 float curDeg = 0;
 float curVel = 10;
@@ -83,19 +74,18 @@ int ownPID;
 
 
 void setup() {
+  /// Variables
+  memset(digits, 0, 11);
+  digits[7] = 1;
   packet.type = -1;
   packet.pid = -1;
 
   Serial.begin(115200);
   badge.init();
 
-  badge.setBacklight(true);
-
   initBadge();
   bConnect();
   clearScreen();
-
-  setupNumbers();
 
 }
 
@@ -109,29 +99,35 @@ void loop() {
   }
   Serial.printf("Shooting %.6f\n", curDeg);
   client.printf("%.6f\n", curDeg);
-  client.flush();
-  delay(500);
+  client.printf("u\n");
+
+  if (client.available())
+    handleIn();
+
+  delay(300);
+
+
 }
 
-void loopl() {
-  delay(1000);
+void handleIn() {
+
   client.readBytes((char *) &packet, 8);
   switch (packet.type) {
     case 1:
       ownPID = packet.pid;
       Serial.printf("PlayerID: %d\n", packet.pid);
-      tft.printf("Player: %d\n", packet.pid);
+      //      tft.printf("Player: %d\n", packet.pid);
       break;
     case 2:
       Serial.printf("Player left: %d\n", packet.pid);
-      tft.printf("Player left: %d\n", packet.pid);
-      client.println("r ");
+      //      tft.printf("Player left: %d\n", packet.pid);
+      //      client.println("r ");
       break;
     case 3:
       client.readBytes((char *) &pPos, 8);
       Serial.printf("PlayerPos: %f %f\n", pPos.x, pPos.y);
-      tft.printf("PlayerPos: %f %f", pPos.x, pPos.y);
-      client.println("r ");
+      //      tft.printf("PlayerPos: %f %f", pPos.x, pPos.y);
+      //      client.println("r ");
       break;
 
     case 4:
@@ -139,23 +135,27 @@ void loopl() {
       long temp;
       client.readBytes((char *) &n, 4);
       Serial.printf("Player finished: %d\n", n);
-      tft.printf("Player finished: %d\n", n);
+      //      tft.printf("Player finished: %d\n", n);
 
-      for (int i = 0; i < n; i++) {
-        client.readBytes((char *) &temp, 8);
-      }
-
-      if (packet.pid == ownPID) {
-        client.println(createVString(0, 0));
-      }
+      //      for (int i = 0; i < n; i++) {
+      //        client.readBytes((char *) &temp, 8);
+      //      }
+      //
+      //      if (packet.pid == ownPID) {
+      //        client.println(createVString(0, 0));
+      //      }
 
       break;
+    case MSG_OWN_ENERGY:
+      double value;
+      client.readBytes((char *) &value, 8);
+      showEnergy(value);
+      break;
+
     case -1:
       break;
     default:
-      client.println(createVString(0, 0));
       Serial.printf("Error: %d\n", packet.type);
-      tft.print("OR ELSE");
       break;
   }
 }
@@ -163,26 +163,25 @@ void loopl() {
 
 
 void bConnect() {
+  tft.println("Connecting to Wifi");
   WiFi.begin(ssid, pw);
 
-  tft.print("Connecting");
   uint8_t cnt = 0;
 
   while (WiFi.status() != WL_CONNECTED) {
     cnt++;
     if (cnt % 4 == 0) {
       tft.print('.');
-      tft.writeFramebuffer();
+
     }
 
     delay(250);
   }
-  Serial.println("WiFi connected");
-  tft.setTextColor(BLACK);
-  tft.writeFramebuffer();
-  tft.println("WiFi connected!");
+
+  tft.println("\nWiFi connected!");
   tft.println(WiFi.localIP());
 
+  tft.println("Connecting Server");
   while (!client.connect(ip, port)) {
     Serial.println("connection failed");
     tft.println("Connection failed!");
@@ -197,190 +196,74 @@ void bConnect() {
     Serial.print('.');
   }
   Serial.println("");
-  client.println("b");
 
 }
 
 void setupNumbers() {
   badge.setAnalogMUX(MUX_JOY);
   tft.setFont(&FreeSans9pt7b);
-  tft.writeFramebuffer();
+
   tft.setTextColor(YELLOW);
   int adc;
   int16_t lastRomID = 1337, romID, velOc, lastVelOc = 1338;
   while (digitalRead(16) == HIGH);
-
+  bool changed = true;
   while (digitalRead(16) == LOW) {
-
     delay(10);
     adc = analogRead(A0);
 
+
     if (adc < UP + OFFSET && adc > UP - OFFSET) {
-      if (selDigit == 0)
-        digit3++;
-      if (selDigit == 1)
-        digit2++;
-      if (selDigit == 2)
-        digit1++;
-      if (selDigit == 3)
-        digit0++;
-      if (selDigit == 4)
-        digit01++;
-      if (selDigit == 5)
-        digit02++;
-      if (selDigit == 6)
-        digit03++;
-      if (selDigit == 7)
-        sDigit3++;
-      if (selDigit == 8)
-        sDigit2++;
-      if (selDigit == 9)
-        sDigit1++;
-      if (selDigit == 10)
-        sDigit0++;
+      changed = true;
+      digits[selDigit]++;
       delay(150);
     }
-
     else if (adc < DOWN + OFFSET && adc > DOWN - OFFSET) {
-      if (selDigit == 0)
-        digit3--;
-      if (selDigit == 1)
-        digit2--;
-      if (selDigit == 2)
-        digit1--;
-      if (selDigit == 3)
-        digit0--;
-      if (selDigit == 4)
-        digit01--;
-      if (selDigit == 5)
-        digit02--;
-      if (selDigit == 6)
-        digit03--;
-      if (selDigit == 7)
-        sDigit3--;
-      if (selDigit == 8)
-        sDigit2--;
-      if (selDigit == 9)
-        sDigit1--;
-      if (selDigit == 10)
-        sDigit0--;
+      changed = true;
+      digits[selDigit]--;
       delay(150);
     }
-
     else if (adc < LEFT + OFFSET && adc > LEFT - OFFSET) {
+      changed = true;
       selDigit--;
       delay(150);
     }
-
     else if (adc < RIGHT + OFFSET && adc > RIGHT - OFFSET) {
+      changed = true;
       selDigit++;
       delay(150);
     }
 
+    // Check for "out of bounds" values
+    for (int i = 10; i >= 0; i--) {
+      if (digits[i] > 9) {
 
-    if (digit03 > 9) {
-      digit03 = 0;
-      digit02++;
-    }
-    if (digit03 < 0) {
-      digit03 = 9;
-      digit02--;
-    }
+        digits[i] = 0;
 
-    if (digit02 > 9) {
-      digit02 = 0;
-      digit01++;
-    }
-    if (digit02 < 0) {
-      digit02 = 9;
-      digit01--;
-    }
+        if (i != 0 && i != 7)
+          digits[i - 1]++;
 
-    if (digit01 > 9) {
-      digit01 = 0;
-      digit0++;
-    }
-    if (digit01 < 0) {
-      digit01 = 9;
-      digit0--;
+      }
+
+      else if (digits[i] < 0) {
+
+        digits[i] = 9;
+
+        if (i != 0 && i != 7)
+          digits[i - 1]--;
+
+      }
     }
 
-    if (digit0 > 9) {
-      digit0 = 0;
-      digit1++;
-    }
-    if (digit0 < 0) {
-      digit0 = 9;
-      digit1--;
-    }
+    // First digit of first line may only be between 0 and 3
+    if (digits[0] == 9) digits[0] = 3;
+    if (digits[0] > 3) digits[0] = 0;
+    if (digits[0] < 0) digits[0] = 3;
 
-    if (digit1 > 9) {
-      digit1 = 0;
-      digit2++;
-    }
-
-    if (digit1 < 0) {
-      digit1 = 9;
-      digit2--;
-    }
-
-    if (digit2 > 9) {
-      digit2 = 0;
-      digit3++;
-    }
-    if (digit2 < 0) {
-      digit2 = 9;
-      digit3--;
-    }
-
-    if (digit3 > 3) {
-      digit3 = 0;
-    }
-
-    if (digit3 < 0) {
-      digit3 = 3;
-    }
-
-
-
-    //=======================
-    if (sDigit0 > 9) {
-      sDigit0 = 0;
-      sDigit1++;
-    }
-    if (sDigit0 < 0) {
-      sDigit0 = 9;
-      sDigit1--;
-    }
-
-    if (sDigit1 > 9) {
-      sDigit1 = 0;
-      sDigit2++;
-    }
-
-    if (sDigit1 < 0) {
-      sDigit1 = 9;
-      sDigit2--;
-
-    }
-
-    if (sDigit2 > 9) {
-      sDigit2 = 0;
-      sDigit3++;
-    }
-    if (sDigit2 < 0) {
-      sDigit2 = 9;
-      sDigit3--;
-
-    }
-
-    if (sDigit3 > 4) {
-      sDigit3 = 0;
-    }
-
-    if (sDigit3 < 0) {
-      sDigit3 = 4;
-    }
+    // First digit of lower line may only be between 0 and 4
+    if (digits[7] == 9) digits[7] = 4;
+    if (digits[7] > 5) digits[7] = 0;
+    if (digits[7] < 0) digits[7] = 4;
 
     if (selDigit > 10)
       selDigit = 0;
@@ -388,10 +271,7 @@ void setupNumbers() {
     if (selDigit < 0)
       selDigit = 10;
 
-    romID = abs(digit3) * 1000 + digit2 * 100 + digit1 * 10 + digit0 + digit01 + digit02 + digit03;
-    velOc = abs(sDigit3) * 1000 + sDigit2 * 100 + sDigit1 * 10 + sDigit0;
-    if (digit3 < 0) romID = -romID;
-    if (romID != lastRomID || selDigit != lastSelDigit || velOc != lastVelOc) {
+    if (changed) {
       tft.fillRect(35, 30, 93, 60, BLACK);
 
       if (selDigit > 6) {
@@ -414,38 +294,37 @@ void setupNumbers() {
       tft.print("vel");
 
       // UPPER
-      if (digit3 < 0)
-        tft.setCursor(39, 45);
-      else
-        tft.setCursor(45, 45);
-      tft.print(digit3);
-      tft.print(digit2);
-      tft.print(digit1);
+      tft.setCursor(45, 45);
+      tft.print(digits[0]);
+      tft.print(digits[1]);
+      tft.print(digits[2]);
       tft.print('.');
-      tft.print(digit0);
-      tft.print(digit01);
-      tft.print(digit02);
-      tft.print(digit03);
+      tft.print(digits[3]);
+      tft.print(digits[4]);
+      tft.print(digits[5]);
+      tft.print(digits[6]);
 
       // LOWER
       tft.setCursor(45, 75);
-      tft.print(sDigit3);
-      tft.print(sDigit2);
+      tft.print(digits[7]);
+      tft.print(digits[8]);
       tft.print('.');
-      tft.print(sDigit1);
-      tft.print(sDigit0);
+      tft.print(digits[9]);
+      tft.print(digits[10]);
 
 
-      tft.writeFramebuffer();
+
       lastVelOc = velOc;
       lastRomID = romID;
       lastSelDigit = selDigit;
     }
 
+    changed = false;
+
   }
 
-  curDeg = (digit3 * 100) + (digit2 * 10) + (digit1 * 1) + (digit0 * 0.1) + (digit01 * 0.01) + (digit02 * 0.001) + (digit03 * 0.0001);
-  curVel = (sDigit3 * 10) + (sDigit2 * 1) + (sDigit1 * 0.1) + (sDigit0 * 0.01);
+  curDeg = (digits[0] * 100) + (digits[1] * 10) + (digits[2] * 1) + (digits[3] * 0.1) + (digits[4] * 0.01) + (digits[5] * 0.001) + (digits[6] * 0.0001);
+  curVel = (digits[7] * 10) + (digits[8] * 1) + (digits[9] * 0.1) + (digits[10] * 0.01);
 
 }
 
@@ -464,6 +343,8 @@ void initBadge() { //initialize the badge
   tft.setRotation(2);
   tft.scroll(32);
 
+  tft.fillScreen(BLACK);
+
   tft.setFont(&FreeSans9pt7b);
   tft.setTextColor(YELLOW);
   tft.setCursor(2, 15);
@@ -473,7 +354,8 @@ void initBadge() { //initialize the badge
 
   tft.setFont();
   tft.setTextSize(1);
-  tft.writeFramebuffer();
+
+  badge.setBacklight(true);
 
 }
 
@@ -488,7 +370,14 @@ void clearScreen() {
 
   tft.setFont();
   tft.setTextSize(1);
-  tft.writeFramebuffer();
+
+}
+
+void showEnergy(double energy) {
+  tft.fillRect(2, 116, 60, 10, BLACK);
+  tft.setTextColor(YELLOW, BLACK);
+  tft.setCursor(3, 117);
+  tft.print(String(energy));
 }
 
 String createVString(float a, float b) {
